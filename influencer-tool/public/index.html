@@ -4014,16 +4014,6 @@ function renderPostsModal(handle, posts) {
             📝 Scan recent posts
           </button>
           <button class="btn-green" id="bdSaveBtn" onclick="bdSaveFiltered()" style="font-size:12px" title="Saves every result to brightdata_profiles — Tier decides scope, not a filter split">💾 Save all results to DB</button>
-          <button id="bdSaveLifestyleBtn" onclick="bdSaveAllToLifestyle()" type="button"
-            style="font-size:12px;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--white);cursor:pointer;color:var(--text)"
-            title="Save ALL search results (no filter) to lifestyle_bloggers table">
-            💾 Save all to LifestyleBloggers
-          </button>
-          <label style="font-size:12px;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--white);cursor:pointer;color:var(--text);display:inline-flex;align-items:center;gap:4px"
-            title="Import a previously-exported JSON file into lifestyle_bloggers">
-            📂 Import JSON
-            <input type="file" accept=".json,application/json" onchange="bdImportJsonToLifestyle(this)" style="display:none">
-          </label>
           <button onclick="bdExportJSON()" type="button"
             style="font-size:12px;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--white);cursor:pointer;color:var(--text)"
             title="Download all results as a JSON backup file">
@@ -4135,18 +4125,6 @@ function renderPostsModal(handle, posts) {
     <!-- Tier distribution for the loaded dataset (incl. filtered & unclassified) -->
     <div id="bdrTierCards" style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap"></div>
 
-    <!-- Dataset switcher: each dataset has its own single table -->
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-      <span style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Dataset:</span>
-      <button id="bdrDsFoodBtn" onclick="bdrSetDataset('food')" type="button"
-        style="padding:6px 14px;border:1px solid var(--border);border-radius:100px;background:#fdf0ee;color:#c0392b;font-size:12px;font-weight:700;cursor:pointer">
-        🍔 Food Bloggers
-      </button>
-      <button id="bdrDsLifestyleBtn" onclick="bdrSetDataset('lifestyle')" type="button"
-        style="padding:6px 14px;border:1px solid var(--border);border-radius:100px;background:var(--white);color:var(--muted);font-size:12px;font-weight:700;cursor:pointer">
-        🌿 Lifestyle Bloggers
-      </button>
-    </div>
 
     <!-- Toolbar: platform pills + tier/filter selects + search -->
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
@@ -4362,8 +4340,6 @@ function renderPostsModal(handle, posts) {
     <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:4px 0 8px">Tier distribution (incl. filtered)</div>
     <div id="insTierCards" style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap"></div>
 
-    <!-- Cross-dataset source split: Food only / Lifestyle only / In both -->
-    <div id="insSourceCards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px"></div>
 
     <!-- Cross-tab breakdown -->
     <div style="background:var(--white);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:20px">
@@ -6566,10 +6542,7 @@ let bdrMatchingData = [];
 // Per-dataset cache so switching between Food/Lifestyle doesn't re-fetch.
 // Each entry holds the matching+excluded arrays for that dataset.
 let bdrDataset = 'food';
-const _bdrDatasetCache = { food: null, lifestyle: null };
-// Kept for backwards compat with any remaining references — superseded by dataset switch.
-let bdrLifestyleData = [];
-let bdrLifestyleLoaded = false;
+const _bdrDatasetCache = { food: null };
 // Retired: the excluded table is gone. Kept as a permanently-empty stub so the
 // { matching, excluded } cache shape and any stray reads stay valid.
 let bdrExcludedData = [];
@@ -7500,60 +7473,18 @@ function insSetPlatform(plat, el) {
   bdrInsightsRender();
 }
 
-// Ensure both Food and Lifestyle datasets are in _bdrDatasetCache. Lazy-fetches
-// whichever side isn't loaded yet. Called from the Overview tab so we can show
-// a unified view across both DBs.
+// Single dataset now — lifestyle_bloggers merged into brightdata_profiles.
 async function bdrEnsureBothDatasetsLoaded() {
-  // Make sure the currently-active dataset is reflected in the cache (it might
-  // not be if bdrSetDataset hasn't been called this session).
-  if (!_bdrDatasetCache[bdrDataset]) {
-    _bdrDatasetCache[bdrDataset] = { matching: bdrMatchingData, excluded: bdrExcludedData };
-  }
-  const other = bdrDataset === 'food' ? 'lifestyle' : 'food';
-  if (_bdrDatasetCache[other]) return;
-  try {
-    const resp = await fetch('/api/db-save', {
-      method: 'POST', headers: getApiHeaders(),
-      body: JSON.stringify({ action: 'brightdata-load', dataset: other }),
-    });
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const data = await resp.json();
-    _bdrDatasetCache[other] = { matching: data.matching || [], excluded: data.excluded || [] };
-  } catch (e) {
-    console.warn('[bdr] failed to preload', other, 'dataset:', e.message);
-  }
-}
-
-// Pull every row from both dataset tables, tagging each with its dataset of origin.
-// Used by the Overview to compute a unified, dedup'd view with source labels.
-function bdrGetAllRowsTagged() {
-  // Sync the active dataset into the cache so the snapshot is current.
-  _bdrDatasetCache[bdrDataset] = { matching: bdrMatchingData, excluded: [] };
-  const food = _bdrDatasetCache.food      || { matching: [], excluded: [] };
-  const life = _bdrDatasetCache.lifestyle || { matching: [], excluded: [] };
-  const tagged = [];
-  for (const r of food.matching) tagged.push({ ...r, _dataset: 'food',      _status: 'matching' });
-  for (const r of life.matching) tagged.push({ ...r, _dataset: 'lifestyle', _status: 'matching' });
-  return tagged;
+  // Nothing extra to load; bdrMatchingData already holds the unified set.
 }
 
 function insGetRows() {
-  // Merge across BOTH datasets — one row per handle, labelled by source dataset.
-  // Out-of-scope creators (rule-based or manually 'filtered' Tier) are dropped —
-  // the Overview is for the kept set.
-  const tagged = bdrGetAllRowsTagged();
+  // Single dataset (lifestyle_bloggers merged into brightdata_profiles).
+  // Merge by handle so creators with multiple platforms appear as one row.
+  const tagged = bdrMatchingData.map(r => ({ ...r, _status: 'matching' }));
   const merged = bdrMergeByHandle(tagged);
-  const out = [];
-  for (const m of merged) {
-    const inFood = m._rows?.some(r => r._dataset === 'food')      || false;
-    const inLife = m._rows?.some(r => r._dataset === 'lifestyle') || false;
-    if (!inFood && !inLife) continue;
-    // T5 (out of scope) is a shown tier now — no rows are dropped here; use the tier filter to hide them.
-    m.source = inFood && inLife ? 'both' : inFood ? 'food' : 'lifestyle';
-    out.push(m);
-  }
-  if (insPlatform === 'all') return out;
-  return out.filter(m => m.platforms.some(p => p.includes(insPlatform)));
+  if (insPlatform === 'all') return merged;
+  return merged.filter(m => m.platforms.some(p => p.includes(insPlatform)));
 }
 
 function insTierLabel(tier) {
@@ -7676,21 +7607,6 @@ function bdrInsightsRender() {
     { num: classified,                      label: 'Classified' },
   ].map(s => `<div class="cov-stat"><div class="cov-stat-num" style="font-size:22px">${s.num}</div><div class="cov-stat-label">${s.label}</div></div>`).join('');
 
-  // Cross-dataset split (matching-only): how many kept creators are food-only,
-  // lifestyle-only, or in both DBs' matching tables. Always 3 cards in one row.
-  const foodOnly  = rows.filter(m => m.source === 'food').length;
-  const lifeOnly  = rows.filter(m => m.source === 'lifestyle').length;
-  const inBoth    = rows.filter(m => m.source === 'both').length;
-  document.getElementById('insSourceCards').innerHTML = [
-    { num: foodOnly, label: '🍔 Food only',      color: '#c0392b', bg: '#fdf0ee', border: '#c0392b' },
-    { num: lifeOnly, label: '🌿 Lifestyle only', color: '#059669', bg: '#ecfdf5', border: '#059669' },
-    { num: inBoth,   label: '🍔🌿 In both DBs',  color: '#92400e', bg: '#fef3c7', border: '#f59e0b' },
-  ].map(s =>
-    `<div style="background:${s.bg};border:1px solid ${s.border}40;border-radius:10px;padding:12px 16px;text-align:center">
-       <div style="font-size:22px;font-weight:700;color:${s.color};font-family:var(--mono)">${s.num}</div>
-       <div style="font-size:11px;color:${s.color};opacity:.85;text-transform:uppercase;letter-spacing:.5px;margin-top:2px">${s.label}</div>
-     </div>`
-  ).join('');
 
   // --- Cross-tab breakdown ---
   // Build cell map: { rowKey -> { colKey -> [profiles] } }
@@ -8043,13 +7959,7 @@ function bdrInsightsRender() {
           const rowBg = i % 2 === 0 ? '' : 'background:var(--surface)';
           return `<tr style="font-size:12px;${rowBg}">
             ${checkCell}
-            <td style="padding:6px 8px;font-weight:600;position:sticky;left:34px;z-index:1;background:${stickyBg};border-right:1px solid var(--border)"><div style="display:flex;flex-wrap:wrap;align-items:center;gap:2px;overflow:hidden">@${m.handle}${platIconLinks}${
-              m.source === 'both'
-                ? `<span title="Present in both Food DB and Lifestyle DB" style="display:inline-block;font-size:9px;font-weight:700;background:#fef3c7;color:#92400e;border:1px solid #f59e0b40;border-radius:100px;padding:1px 6px;margin-left:6px;vertical-align:middle">🍔🌿 Both</span>`
-              : m.source === 'lifestyle'
-                ? `<span title="In Lifestyle DB only" style="display:inline-block;font-size:9px;font-weight:700;background:#ecfdf5;color:#059669;border:1px solid #05966940;border-radius:100px;padding:1px 6px;margin-left:6px;vertical-align:middle">🌿 Lifestyle</span>`
-                : `<span title="In Food DB only" style="display:inline-block;font-size:9px;font-weight:700;background:#fdf0ee;color:#c0392b;border:1px solid #c0392b40;border-radius:100px;padding:1px 6px;margin-left:6px;vertical-align:middle">🍔 Food</span>`
-            }</div></td>
+            <td style="padding:6px 8px;font-weight:600;position:sticky;left:34px;z-index:1;background:${stickyBg};border-right:1px solid var(--border)"><div style="display:flex;flex-wrap:wrap;align-items:center;gap:2px;overflow:hidden">@${m.handle}${platIconLinks}</div></td>
             <td style="padding:6px 8px;text-align:right;font-family:var(--mono)">${bdFormatCompact(Number(m.followers)||0)}</td>
             <td style="padding:6px 8px;text-align:center;font-family:var(--mono)">${engCell}</td>
             <td style="padding:6px 8px">${tierCell}</td>
