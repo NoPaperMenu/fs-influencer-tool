@@ -286,20 +286,25 @@ async function callClaude(client, model, profile) {
   });
   return parseResult(msg.content[0].text);
 }
-async function callOpenAI(model, profile) {
+async function callOpenAI(model, profile, reasoningEffort) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY not set');
   const imgs = profileImageUrls(profile);
   const userContent = imgs.length
     ? [{ type: 'text', text: buildUserPrompt(profile) }, ...imgs.map(url => ({ type: 'image_url', image_url: { url } }))]
     : buildUserPrompt(profile);
+  const isGpt5 = /gpt-5/i.test(model);
   const body = {
-    model, max_completion_tokens: MAX_TOKENS,
+    // Reasoning models spend reasoning tokens out of max_completion_tokens, so gpt-5* gets a
+    // higher cap or the visible JSON output gets truncated and the parse fails.
+    model, max_completion_tokens: isGpt5 ? 2500 : MAX_TOKENS,
     messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: userContent }],
   };
   // GPT-5 models support a `verbosity` control (low|medium|high). Force "low" so the free-text
   // fields (reasoning, fit_reasoning) stay terse. Only sent for gpt-5* — older models 400 on it.
-  if (/gpt-5/i.test(model)) body.verbosity = 'low';
+  if (isGpt5) body.verbosity = 'low';
+  // Reasoning effort (minimal|low|medium|high) — gpt-5* reasoning models only.
+  if (isGpt5 && reasoningEffort) body.reasoning_effort = reasoningEffort;
   const r = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
     body: JSON.stringify(body),
@@ -340,12 +345,12 @@ async function callGrok(model, profile) {
 let _anthropic = null;
 // profile: { bio, full_name, location, platform, captions: string[], image_urls?: string[] | screenshot_url?: string }
 // image_urls/screenshot_url (public URLs) are attached as vision input for anthropic/openai/grok.
-export async function classifyCreator(profile, { provider = 'anthropic', model = 'claude-haiku-4-5-20251001' } = {}) {
+export async function classifyCreator(profile, { provider = 'anthropic', model = 'claude-haiku-4-5-20251001', reasoningEffort = null } = {}) {
   if (provider === 'anthropic') {
     _anthropic = _anthropic || new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     return withRetry(() => callClaude(_anthropic, model, profile));
   }
-  if (provider === 'openai') return withRetry(() => callOpenAI(model, profile));
+  if (provider === 'openai') return withRetry(() => callOpenAI(model, profile, reasoningEffort));
   if (provider === 'gemini') return withRetry(() => callGemini(model, profile));
   if (provider === 'grok')   return withRetry(() => callGrok(model, profile));
   throw new Error(`Unknown provider: ${provider}`);

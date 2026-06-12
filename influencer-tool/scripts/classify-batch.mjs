@@ -32,6 +32,8 @@ const PROVIDER = getFlag('--provider') || 'anthropic';
 const MODEL = getFlag('--model') || 'claude-haiku-4-5-20251001';
 const CONCURRENCY = Number(getFlag('--concurrency')) || 8;
 const CAPTIONS_PER = Number(getFlag('--captions')) || 30;
+const REASONING = getFlag('--reasoning'); // minimal|low|medium|high — gpt-5* models only
+const RETRY_PASSES = Number(getFlag('--retry-passes')) || 1; // failed rows re-queued at the end
 // Scope to a subset (e.g. the creators just refreshed by the 30-post re-crawl): only classify people
 // whose TOP-follower platform is in --only (comma-sep) and whose followers are >= --min-followers.
 const ONLY = getFlag('--only');                                    // instagram | tiktok | youtube | x (comma-sep ok)
@@ -49,7 +51,7 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 const LOG_PATH = path.join(__dirname, 'classify-batch.jsonl');
 const log = (e) => { try { fs.appendFileSync(LOG_PATH, JSON.stringify({ ts: new Date().toISOString(), ...e }) + '\n'); } catch {} };
 
-const SOURCE_TABLES = ['brightdata_profiles', 'lifestyle_bloggers'];
+const SOURCE_TABLES = ['brightdata_profiles']; // lifestyle_bloggers merged in (2026-06)
 const lc = (h) => String(h || '').replace(/^@/, '').toLowerCase();
 const canon = (p) => { p = String(p || '').toLowerCase(); if (p.includes('insta')) return 'instagram'; if (p.includes('tik')) return 'tiktok'; if (p.includes('you')) return 'youtube'; if (p === 'x' || p.includes('twit')) return 'x'; return p; };
 const PLATFORM_PRIORITY = { instagram: 0, tiktok: 1, youtube: 2, x: 3 };
@@ -160,8 +162,9 @@ async function loadPostImages(handle, platform) {
     process.exit(0);
   }
 
-  let done = 0, ok = 0;
-  await mapPool(people, CONCURRENCY, async (person) => {
+  let done = 0, ok = 0, total = people.length;
+  // Returns null on success, or the person on failure (so failures can be re-queued).
+  const classifyOne = async (person, pass) => {
     try {
       const [captions, image_urls] = await Promise.all([
         loadCaptions(person.handle, person.platform),
@@ -169,7 +172,7 @@ async function loadPostImages(handle, platform) {
       ]);
       const facts = await classifyCreator(
         { bio: person.bio, full_name: person.full_name, location: person.location, platform: person.platform, captions, image_urls },
-        { provider: PROVIDER, model: MODEL });
+        { provider: PROVIDER, model: MODEL, reasoningEffort: REASONING });
       const { error } = await sb.from(person.table).update({
         entity_type: facts.entity_type,
         primary_content_category: facts.primary_content_category,
@@ -185,11 +188,23 @@ async function loadPostImages(handle, platform) {
       }).eq('handle', person.handle).eq('platform', person.platform);
       if (error) throw new Error(error.message);
       ok++; log({ handle: person.handle, platform: person.platform, entity: facts.entity_type, cat: facts.primary_content_category, uk: facts.uk_geography });
+      return null;
     } catch (e) {
-      console.warn(`[classify] ${person.handle}: ${e.message}`);
-      log({ handle: person.handle, platform: person.platform, error: e.message });
+      console.warn(`[classify] ${person.handle} (pass ${pass}): ${e.message}`);
+      log({ handle: person.handle, platform: person.platform, error: e.message, pass });
+      return person;
+    } finally {
+      if (++done % 50 === 0) console.log(`[classify] ${done}/${total} (pass ${pass})`);
     }
-    if (++done % 50 === 0) console.log(`[classify] ${done}/${people.length}`);
-  });
-  console.log(`[classify] done — ${ok}/${people.length} classified`);
+  };
+
+  // Main pass, then re-queue failures for up to RETRY_PASSES extra rounds at the end.
+  let queue = people;
+  for (let pass = 1; pass <= 1 + RETRY_PASSES && queue.length; pass++) {
+    if (pass > 1) console.log(`[classify] retry pass ${pass}: re-running ${queue.length} failed row(s)…`);
+    done = 0; total = queue.length;
+    const results = await mapPool(queue, CONCURRENCY, (p) => classifyOne(p, pass));
+    queue = results.filter(Boolean);
+  }
+  console.log(`[classify] done — ${ok}/${people.length} classified${queue.length ? `, ${queue.length} STILL FAILED: ${queue.slice(0, 20).map(p => p.handle).join(', ')}${queue.length > 20 ? '…' : ''}` : ''}`);
 })();
