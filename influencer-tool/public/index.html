@@ -2522,9 +2522,8 @@ function switchMainTab(tab) {
   if (tab === 'enrich')    loadEnrichTab();
   if (tab === 'bdresults') { bdrUpdateModelSel(); loadBdResults(); }
   if (tab === 'insights')  {
-    const afterLoad = () => bdrEnsureBothDatasetsLoaded().then(bdrInsightsRender).catch(() => bdrInsightsRender());
-    if (!bdrLoaded) loadBdResults().then(afterLoad);
-    else afterLoad();
+    if (!bdrLoaded) loadBdResults().then(bdrInsightsRender);
+    else bdrInsightsRender();
   }
   if (tab === 'outreach')  loadOutreach();
   localStorage.setItem('activeMainTab', tab);
@@ -4021,7 +4020,6 @@ function renderPostsModal(handle, posts) {
           </button>
         </div>
       </div>
-      <div id="bdLifestyleImportStatus" style="font-size:11.5px;color:var(--muted);padding:4px 12px"></div>
       <div class="table-wrap" style="max-height:60vh">
         <table class="cov-table">
           <thead>
@@ -4271,7 +4269,6 @@ function renderPostsModal(handle, posts) {
       <option value="Cuisine Specialist">
       <option value="Drinks & Nightlife Creator">
       <option value="Travel Blogger">
-      <option value="Lifestyle Blogger">
       <option value="City Guide / Editorial">
     </datalist>
 
@@ -6140,91 +6137,6 @@ async function bdSaveFiltered() {
   }
 }
 
-// Save ALL current search results to lifestyle_bloggers — bypasses filter gate.
-// Use when you want to keep a raw bucket of hashtag-search output for later review.
-async function bdSaveAllToLifestyle() {
-  if (!Array.isArray(bdAllResults) || !bdAllResults.length) {
-    setBdStatus('No search results in memory. Run a search first.', 'red');
-    return;
-  }
-  if (!confirm(`Save all ${bdAllResults.length} profiles to lifestyle_bloggers? (Bypasses your filter rules)`)) return;
-  const toSave = bdAllResults.map(r => ({ ...r, rawPlatform: bdPlatform }));
-  const btn = document.getElementById('bdSaveLifestyleBtn');
-  const original = btn?.textContent || '';
-  if (btn) { btn.disabled = true; }
-  const BATCH = 300;
-  let totalSaved = 0;
-  try {
-    for (let i = 0; i < toSave.length; i += BATCH) {
-      const chunk = toSave.slice(i, i + BATCH);
-      if (btn) btn.textContent = `⏳ Saving… ${Math.min(i + BATCH, toSave.length)}/${toSave.length}`;
-      const resp = await fetch('/api/db-save', {
-        method: 'POST', headers: getApiHeaders(),
-        body: JSON.stringify({ action: 'brightdata', profiles: chunk, target: 'lifestyle' }),
-      });
-      let data;
-      try { data = await resp.json(); } catch (_) { throw new Error('Server returned non-JSON (payload too large?)'); }
-      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
-      totalSaved += data.saved ?? 0;
-    }
-    setBdStatus(`✓ Saved ${totalSaved} profiles to lifestyle_bloggers.`, 'green');
-  } catch (e) {
-    setBdStatus(`Save error: ${e.message}`, 'red');
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = original || '💾 Save all to LifestyleBloggers'; }
-  }
-}
-
-// Import a previously-exported JSON file into lifestyle_bloggers.
-// JSON should be an array of profile objects (same shape as bdExportJSON output).
-async function bdImportJsonToLifestyle(fileInput) {
-  const file = fileInput.files?.[0];
-  if (!file) return;
-  const status = document.getElementById('bdLifestyleImportStatus');
-  if (status) status.textContent = `Parsing ${file.name}…`;
-  let profiles;
-  try {
-    const text = await file.text();
-    const parsed = JSON.parse(text);
-    profiles = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.profiles) ? parsed.profiles : null);
-    if (!profiles) throw new Error('Expected a JSON array of profiles');
-  } catch (e) {
-    if (status) status.textContent = `❌ Parse failed: ${e.message}`;
-    fileInput.value = '';
-    return;
-  }
-  if (!profiles.length) {
-    if (status) status.textContent = '❌ File contains no profiles';
-    fileInput.value = '';
-    return;
-  }
-  if (!confirm(`Import ${profiles.length} profiles from "${file.name}" into lifestyle_bloggers?`)) {
-    fileInput.value = '';
-    return;
-  }
-  const toSave = profiles.map(r => ({ ...r, rawPlatform: r.rawPlatform || r.platform || 'instagram' }));
-  const BATCH = 300;
-  let totalSaved = 0;
-  try {
-    for (let i = 0; i < toSave.length; i += BATCH) {
-      const chunk = toSave.slice(i, i + BATCH);
-      if (status) status.textContent = `⏳ Saving ${Math.min(i + BATCH, toSave.length)}/${toSave.length}…`;
-      const resp = await fetch('/api/db-save', {
-        method: 'POST', headers: getApiHeaders(),
-        body: JSON.stringify({ action: 'brightdata', profiles: chunk, target: 'lifestyle' }),
-      });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
-      totalSaved += data.saved ?? 0;
-    }
-    if (status) status.textContent = `✓ Imported ${totalSaved} profiles into lifestyle_bloggers.`;
-  } catch (e) {
-    if (status) status.textContent = `❌ Import failed: ${e.message}`;
-  } finally {
-    fileInput.value = '';
-  }
-}
-
 async function bdAutoSaveToDB(profiles, target) {
   // Silent background upsert — batched to stay under Vercel body limit
   const BATCH = 300;
@@ -6539,8 +6451,8 @@ function renderSearchHistory({ runs = [], byModel = [], byPlatform = [], byKeywo
 // ── BD Results tab ────────────────────────────────────────────────────────
 
 let bdrMatchingData = [];
-// Per-dataset cache so switching between Food/Lifestyle doesn't re-fetch.
-// Each entry holds the matching+excluded arrays for that dataset.
+// Single dataset — lifestyle_bloggers was merged into brightdata_profiles.
+// bdrDataset/_bdrDatasetCache survive as a one-entry cache keyed 'food'.
 let bdrDataset = 'food';
 const _bdrDatasetCache = { food: null };
 // Retired: the excluded table is gone. Kept as a permanently-empty stub so the
@@ -7473,11 +7385,6 @@ function insSetPlatform(plat, el) {
   bdrInsightsRender();
 }
 
-// Single dataset now — lifestyle_bloggers merged into brightdata_profiles.
-async function bdrEnsureBothDatasetsLoaded() {
-  // Nothing extra to load; bdrMatchingData already holds the unified set.
-}
-
 function insGetRows() {
   // Single dataset (lifestyle_bloggers merged into brightdata_profiles).
   // Merge by handle so creators with multiple platforms appear as one row.
@@ -7556,12 +7463,9 @@ function bdrInsightsRender() {
   // the platform pill, which leaves each platform's cohort complete).
   bdrComputeScores(rows);
 
-  // Update platform pill counts — reflect the unified (food + lifestyle) merged set
+  // Update platform pill counts — reflect the full merged set (one row per handle)
   // so what you see in the pill matches what the rest of the Overview is showing.
-  const allM = (() => {
-    const merged = bdrMergeByHandle(bdrGetAllRowsTagged());
-    return merged;
-  })();
+  const allM = bdrMergeByHandle(bdrMatchingData.map(r => ({ ...r, _status: 'matching' })));
   document.getElementById('insPcAll').textContent = allM.length;
   ['instagram','tiktok','youtube','x'].forEach(p => {
     const id = { instagram:'insPcIg', tiktok:'insPcTt', youtube:'insPcYt', x:'insPcX' }[p];
@@ -7573,7 +7477,6 @@ function bdrInsightsRender() {
 
   if (!rows.length) {
     document.getElementById('insStatCards').innerHTML = '<span style="font-size:13px;color:var(--muted)">No data — run a search and save results first.</span>';
-    document.getElementById('insSourceCards').innerHTML = '';
     document.getElementById('insCrossTable').innerHTML = '';
     document.getElementById('insTopList').innerHTML = '';
     return;
@@ -8401,8 +8304,7 @@ async function bdrFindOtherPlatforms() {
     }
   }
 
-  // Route to the active dataset's table so find-other-platforms writes to the right place.
-  const datasetTable = bdrDataset === 'lifestyle' ? 'lifestyle_bloggers' : 'brightdata_profiles';
+  const datasetTable = 'brightdata_profiles';
 
   try {
     if (matchMerged.length) await runPhase('Profiles', matchMerged, datasetTable);
@@ -8562,64 +8464,6 @@ function bdrRefreshFilterDropdowns(filteredRows) {
     }
     if ([...langSel.options].some(o => o.value === prevLang)) langSel.value = prevLang;
     else langSel.value = '';
-  }
-}
-
-// Switch between Food Bloggers and Lifestyle Bloggers datasets. Each has its own
-// single table. Cached on first load so re-switching is instant.
-async function bdrSetDataset(dataset) {
-  if (dataset !== 'food' && dataset !== 'lifestyle') return;
-  if (dataset === bdrDataset && bdrLoaded) return;
-  // Stash current arrays before swap
-  if (bdrLoaded) {
-    _bdrDatasetCache[bdrDataset] = { matching: bdrMatchingData, excluded: [] };
-  }
-  // Update pill button styles
-  const foodBtn = document.getElementById('bdrDsFoodBtn');
-  const lifeBtn = document.getElementById('bdrDsLifestyleBtn');
-  if (foodBtn) {
-    foodBtn.style.background = dataset === 'food' ? '#fdf0ee' : 'var(--white)';
-    foodBtn.style.color      = dataset === 'food' ? '#c0392b' : 'var(--muted)';
-  }
-  if (lifeBtn) {
-    lifeBtn.style.background = dataset === 'lifestyle' ? '#ecfdf5' : 'var(--white)';
-    lifeBtn.style.color      = dataset === 'lifestyle' ? '#059669' : 'var(--muted)';
-  }
-  // Restore from cache or fetch fresh
-  if (_bdrDatasetCache[dataset]) {
-    bdrDataset = dataset;
-    bdrMatchingData = _bdrDatasetCache[dataset].matching;
-    bdrExcludedData = [];
-    bdrUpdateStats();
-    bdrApplyFilter();
-  } else {
-    bdrLoaded = false; // force reload for the new dataset
-    await loadBdResults(true, dataset);
-  }
-}
-
-async function bdrLoadLifestyle() {
-  const btn = document.getElementById('bdrViewLifestyleBtn');
-  const countEl = document.getElementById('bdrLifestyleCount');
-  if (btn) btn.disabled = true;
-  if (countEl) countEl.textContent = '…';
-  try {
-    const resp = await fetch('/api/db-save', {
-      method: 'POST', headers: getApiHeaders(),
-      body: JSON.stringify({ action: 'lifestyle-load' }),
-    });
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const data = await resp.json();
-    bdrLifestyleData = data.rows || [];
-    bdrLifestyleLoaded = true;
-    if (countEl) countEl.textContent = String(bdrLifestyleData.length);
-    bdrUpdateStats();
-    bdrApplyFilter();
-  } catch (e) {
-    if (countEl) countEl.textContent = '!';
-    alert('Failed to load lifestyle_bloggers: ' + e.message);
-  } finally {
-    if (btn) btn.disabled = false;
   }
 }
 
@@ -9168,7 +9012,7 @@ async function bdrPatchClassificationDB(patches) {
 // Clear all AI classification + Tier for the active dataset so it can be re-classified.
 // Destructive — confirms, then requires the app password to be re-entered (verified server-side).
 async function bdrResetAiResults() {
-  const dsLabel = bdrDataset === 'lifestyle' ? 'Lifestyle Bloggers' : 'Food Bloggers';
+  const dsLabel = 'all profiles';
   if (!confirm(`Reset ALL AI results for ${dsLabel}?\n\nThis clears entity type, content category, food sub-type, UK status, reasoning and Tier for every classified profile in this dataset. Raw profile data (followers, bio, posts) is NOT touched — you'll just need to run AI Classify again.\n\nThis cannot be undone.`)) return;
   const pw = prompt('Re-enter the app password to confirm this reset:');
   if (pw == null || pw === '') return;  // cancelled / empty
