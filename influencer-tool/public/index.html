@@ -9249,6 +9249,7 @@ function bdrExportCsv() {
 let _outreachData = [];        // cached list from DB
 let _outreachLoaded = false;   // true once fetched at least once (even if empty)
 let _outreachEditHandle = null; // null = add mode, string = edit mode
+let _outreachInfoHandle = null; // handle whose info card is open (stale-guard for async image fill)
 
 // Platform logo links in the Outreach table read from bdrMatchingData (the BrightData profile set).
 // Outreach can be opened without ever visiting the Overview tab, so ensure that data is loaded —
@@ -9377,11 +9378,12 @@ function outreachRender() {
 // ── Influencer info card ──────────────────────────────────────────────────────
 // Read-only detail popup for an outreach row. Mirrors the Overview/AI-classify field
 // set + styling exactly (same label maps + badge markup) so values are identical.
-function outreachOpenInfo(handle) {
+async function outreachOpenInfo(handle) {
   const titleEl = document.getElementById('outreachInfoTitle');
   const subEl   = document.getElementById('outreachInfoSub');
   const bodyEl  = document.getElementById('outreachInfoBody');
   titleEl.textContent = '@' + handle;
+  _outreachInfoHandle = handle; // stale-guard token for the async image fill below
 
   // Find the merged profile + classification (same lookup the table's platform links use).
   const mergedSet = (typeof bdrMergeByHandle === 'function' && bdrMatchingData?.length)
@@ -9437,11 +9439,42 @@ function outreachOpenInfo(handle) {
       ${row('UK Status', badge(BD_UK_META, cls.uk_geography))}
       ${row('Fit Status', badge(BD_FIT_META, cls.foodstyles_fit))}
     ` : '<div style="padding:14px 0 4px;color:var(--muted2);font-size:12px">Not AI-classified yet — entity, category, food type, service, dietary, UK and fit are unavailable. Run ✨ AI Classify on the Overview tab.</div>'}
+    <div style="padding:14px 0 2px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">Recent posts</div>
+      <div id="outreachInfoImages" style="display:flex;gap:8px;flex-wrap:wrap"><span style="color:var(--muted2);font-size:12px">Loading…</span></div>
+    </div>
   `;
   document.getElementById('outreachInfoOverlay').style.display = '';
+
+  // Load the 3 most recent post images (same source + proxy as the AI-classify modal). Re-hosted
+  // (permanent) thumbnails preferred over expiring CDN URLs. Stale-guarded so opening another card
+  // mid-fetch doesn't overwrite this one.
+  const platform = m.platforms?.[0] || '';
+  try {
+    const resp = await fetch('/api/db-save', { method: 'POST', headers: getApiHeaders(),
+      body: JSON.stringify({ action: 'load-posts', handle, platform: platform || undefined }) });
+    const data = await resp.json().catch(() => ({}));
+    if (_outreachInfoHandle !== handle) return; // a different card was opened meanwhile
+    const posts = Array.isArray(data.posts) ? data.posts : [];
+    const cand = posts
+      .map(pp => ({ u: pp.thumbnail_url || (Array.isArray(pp.media_urls) ? pp.media_urls[0] : '') || '', cap: pp.caption || '', url: pp.post_url || '' }))
+      .filter(x => x.u);
+    const perm = u => u.includes('/storage/v1/object/public/');   // re-hosted, never expires
+    cand.sort((a, b) => (perm(a.u) ? 0 : 1) - (perm(b.u) ? 0 : 1)); // permanent first
+    const imgs = cand.slice(0, 3);
+    const strip = document.getElementById('outreachInfoImages');
+    if (strip) strip.innerHTML = imgs.length
+      ? imgs.map(x => `<a href="${x.url || '#'}" target="_blank" rel="noopener" title="${(x.cap || '').replace(/"/g, '&#39;').slice(0, 300)}"><img src="${bdrProxyThumb(x.u)}" style="width:120px;height:120px;object-fit:cover;border-radius:8px;border:1px solid var(--border);display:block" onerror="this.style.opacity='.25';this.title='image failed to load'"></a>`).join('')
+      : '<span style="color:var(--muted2);font-size:12px">No recent post images for this platform.</span>';
+  } catch {
+    if (_outreachInfoHandle !== handle) return;
+    const strip = document.getElementById('outreachInfoImages');
+    if (strip) strip.innerHTML = '<span style="color:var(--muted2);font-size:12px">Could not load post images.</span>';
+  }
 }
 
 function outreachCloseInfo() {
+  _outreachInfoHandle = null; // cancel any in-flight image fill
   document.getElementById('outreachInfoOverlay').style.display = 'none';
 }
 
