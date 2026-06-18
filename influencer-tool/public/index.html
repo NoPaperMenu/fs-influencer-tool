@@ -4550,6 +4550,20 @@ function renderPostsModal(handle, posts) {
       </div>
     </div>
   </div>
+
+  <!-- Influencer info card modal -->
+  <div id="outreachInfoOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1001;overflow-y:auto" onclick="if(event.target===this)outreachCloseInfo()">
+    <div style="background:var(--white);border-radius:12px;width:480px;max-width:96vw;margin:48px auto;padding:0;box-shadow:0 8px 40px rgba(0,0,0,.18)">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div id="outreachInfoTitle" style="font-size:14px;font-weight:700">Influencer details</div>
+          <div id="outreachInfoSub" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
+        </div>
+        <button onclick="outreachCloseInfo()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);line-height:1">&times;</button>
+      </div>
+      <div id="outreachInfoBody" style="padding:8px 20px 18px"></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -9352,11 +9366,83 @@ function outreachRender() {
       <td style="padding:8px 12px;color:var(--muted)">${outreachFormatDate(r.first_post_date)}</td>
       <td style="padding:8px 12px;text-align:center">${r.requires_agency ? '<span title="Requires agency/sponsor" style="font-size:13px">🏢</span>' : '—'}</td>
       <td style="padding:8px 12px">${bdrTagEditorHtml(r.handle,'outreach')}</td>
-      <td style="padding:8px 12px;text-align:right">
+      <td style="padding:8px 12px;text-align:right;white-space:nowrap">
+        <button onclick="outreachOpenInfo('${r.handle}')" title="View influencer details" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 9px;font-size:12px;cursor:pointer;margin-right:4px">ℹ️</button>
         <button onclick="outreachOpenForm('${r.handle}')" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer">Edit</button>
       </td>
     </tr>`;
   }).join('');
+}
+
+// ── Influencer info card ──────────────────────────────────────────────────────
+// Read-only detail popup for an outreach row. Mirrors the Overview/AI-classify field
+// set + styling exactly (same label maps + badge markup) so values are identical.
+function outreachOpenInfo(handle) {
+  const titleEl = document.getElementById('outreachInfoTitle');
+  const subEl   = document.getElementById('outreachInfoSub');
+  const bodyEl  = document.getElementById('outreachInfoBody');
+  titleEl.textContent = '@' + handle;
+
+  // Find the merged profile + classification (same lookup the table's platform links use).
+  const mergedSet = (typeof bdrMergeByHandle === 'function' && bdrMatchingData?.length)
+    ? bdrMergeByHandle(bdrMatchingData) : [];
+  const m   = mergedSet.find(x => x.handle === handle) || null;
+  // Engagement Rating is a within-platform percentile — recompute over the FULL set so the
+  // cohort is correct regardless of whether the Overview tab has rendered (idempotent, in place).
+  if (mergedSet.length && typeof bdrComputeScores === 'function') bdrComputeScores(mergedSet);
+  const cls = m ? bdrGetClass(m.handle, m.platforms?.[0] || '') : {};
+
+  if (!m) {
+    subEl.textContent = '';
+    bodyEl.innerHTML = '<div style="padding:24px 0;text-align:center;color:var(--muted2);font-size:13px">No profile data for this handle — it isn\'t in the loaded influencer dataset.</div>';
+    document.getElementById('outreachInfoOverlay').style.display = '';
+    return;
+  }
+  subEl.textContent = (m.platforms || []).join(' · ') + (m.full_name ? ` — ${m.full_name}` : '');
+
+  // Shared display helpers (match bdrViewClass styling).
+  const badge = (meta, val) => {
+    const mm = meta[val];
+    return mm
+      ? `<span title="${(mm.t||'').replace(/"/g,"'")}" style="font-size:11px;font-weight:700;background:${mm.bg};color:${mm.color};border:1px solid ${mm.color}40;border-radius:100px;padding:2px 10px">${mm.label}</span>`
+      : '<span style="color:var(--muted2)">—</span>';
+  };
+  const plain = (label) => label ? `<span style="font-size:12.5px">${escapeHtml(String(label))}</span>` : '<span style="color:var(--muted2)">—</span>';
+  const row   = (k, v) => `<div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)"><div style="width:140px;flex-shrink:0;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">${k}</div><div style="flex:1">${v}</div></div>`;
+
+  // Followers
+  const followers = `<span style="font-weight:700;font-family:var(--mono)">${bdFormatCompact(Number(m.followers)||0)}</span>`;
+  // Engagement Rating (0–100 percentile) — colour-coded like Overview, with hype ⚠ flag.
+  const eng = (m.engScore == null)
+    ? '<span style="color:var(--muted2)">—</span>'
+    : `<span style="font-weight:700;color:${m.engScore>=70?'var(--green)':m.engScore>=40?'var(--amber)':'var(--muted)'}">${m.engScore}</span>${m.hype?' <span title="≥25k followers but bottom-quartile engagement for its platform — verify before outreach" style="color:#c0392b;font-weight:700;cursor:help">⚠</span>':''}`;
+  // Tier
+  const ti = bdrEffectiveTier(m);
+  const tm = ti.status === 'tier' ? BD_TIER_META[ti.tier] : null;
+  const tier = tm
+    ? `<span title="${(ti.reason||tm.t||'').replace(/"/g,"'")}" style="font-size:11px;font-weight:800;background:${tm.bg};color:${tm.color};border:1px solid ${tm.color}55;border-radius:100px;padding:2px 10px">${tm.label}${ti.manual?' (manual)':''}</span>`
+    : '<span title="Not classified yet — run AI Classify" style="color:var(--muted2)">— (unclassified)</span>';
+
+  const classified = cls && cls.entity_type != null;
+  bodyEl.innerHTML = `
+    ${row('Followers', followers)}
+    ${row('Engagement Rating', eng)}
+    ${row('Tier', tier)}
+    ${classified ? `
+      ${row('Entity', badge(BD_ENTITY_META, cls.entity_type))}
+      ${row('Category', plain(BD_CAT_LABEL[cls.primary_content_category] || cls.primary_content_category))}
+      ${row('Food Type', plain(cls.primary_food_content_type ? (BD_FOODTYPE_LABEL[cls.primary_food_content_type] || cls.primary_food_content_type) : ''))}
+      ${row('Service', badge(BD_SERVICE_META, cls.food_service_type))}
+      ${row('Dietary', badge(BD_DIETARY_META, cls.dietary_focus))}
+      ${row('UK Status', badge(BD_UK_META, cls.uk_geography))}
+      ${row('Fit Status', badge(BD_FIT_META, cls.foodstyles_fit))}
+    ` : '<div style="padding:14px 0 4px;color:var(--muted2);font-size:12px">Not AI-classified yet — entity, category, food type, service, dietary, UK and fit are unavailable. Run ✨ AI Classify on the Overview tab.</div>'}
+  `;
+  document.getElementById('outreachInfoOverlay').style.display = '';
+}
+
+function outreachCloseInfo() {
+  document.getElementById('outreachInfoOverlay').style.display = 'none';
 }
 
 function outreachOpenForm(handle) {
