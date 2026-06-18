@@ -55,8 +55,8 @@ function ref(facts, followers, lastPostAt) {
   let tier;
   if (fit === 'not_a_fit') tier = 5;
   else if (fit === 'weak_fit') tier = 4;
-  else if (fit === 'possible_fit') tier = (uk === 'location_low_proof') ? 2 : 3;
-  else if (fit === 'strong_fit') tier = T1_FORMATS.includes(ft) ? 1 : 2;
+  else if (fit === 'possible_fit') tier = (uk === 'location_low_proof') ? 3 : 2;
+  else if (fit === 'strong_fit') tier = T1_FORMATS.includes(ft) ? 1 : 3;
   else tier = 5;
   // Takeaway cap
   if (facts.food_service_type === 'takeaway' && (tier === 1 || tier === 2)) tier = 3;

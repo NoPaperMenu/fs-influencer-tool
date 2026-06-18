@@ -4416,9 +4416,15 @@ function renderPostsModal(handle, posts) {
 
     <!-- Pipeline table -->
     <div style="background:var(--white);border:1px solid var(--border);border-radius:10px;overflow:hidden">
-      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
         <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Outreach Pipeline</span>
-        <button onclick="outreachOpenForm(null)" style="display:inline-flex;align-items:center;gap:5px;background:var(--green);color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer">+ Add influencer</button>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--muted)">Filter tag</span>
+          <select id="outreachFilterTags" onchange="outreachRender()" style="padding:4px 7px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--white)">
+            <option value="">All</option>
+          </select>
+          <button onclick="outreachOpenForm(null)" style="display:inline-flex;align-items:center;gap:5px;background:var(--green);color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer">+ Add influencer</button>
+        </div>
       </div>
       <div id="outreachTableWrap" style="overflow-x:auto">
         <table id="outreachTable" style="width:100%;border-collapse:collapse;min-width:800px">
@@ -6633,16 +6639,15 @@ const BD_FIT_META = {
 // PREREQUISITE (all tiers): primary_followers > 10,000 AND uk_geography ≠ location_irrelevant.
 //   food density = food_post_count / total_posts_analyzed.
 // T1  food + restaurant-focused(lists/reviews/news) + density≥50% + UK relevant.
-// T2  food + ONE of: restaurant-focused 25–49% & relevant · restaurant-focused ≥50% & low_proof|unverified
-//                  · chef_dishes|travel_food|mixed ≥50% & relevant.
-// T3  any other food creator that cleared the prerequisite.
+// T2  possible fit + UK relevant|unverified (not low_proof).
+// T3  strong fit non-review format · possible fit + UK low_proof · delivery-only cap.
 // T4  non-food + relevant + ( groupA{fitness,fashion,travel,parenting,business,arts} density≥15%
 //                           | groupB{general_lifestyle,entertainment} density≥25% ).
 // FILTERED everything else (≤10k, location_irrelevant, non-food without relevant, 'other', low density).
 const BD_TIER_META = {
   1: { label: 'T1', color: 'var(--green)', bg: '#edf7f1', t: 'Reach out first — strong fit, dining-out reviewer/list-maker, UK-proven' },
-  2: { label: 'T2', color: 'var(--blue)',  bg: '#eef4fc', t: 'Approach soon — strong fit (non-review format) or possible fit with only UK low-proof' },
-  3: { label: 'T3', color: 'var(--amber)', bg: '#fef8ec', t: 'Worth a look — possible fit (food secondary / partial dining mode), or takeaway-capped' },
+  2: { label: 'T2', color: 'var(--blue)',  bg: '#eef4fc', t: 'Approach soon — possible fit (food secondary / partial dining mode)' },
+  3: { label: 'T3', color: 'var(--amber)', bg: '#fef8ec', t: 'Worth a look — strong fit (non-review format), possible fit with only UK low-proof, or delivery-only' },
   4: { label: 'T4', color: '#7c3aed',      bg: '#f3effe', t: 'Situational — weak fit (tangential / home-cooking / UK unverified)' },
   5: { label: 'T5', color: '#c0392b',      bg: '#fdf0ee', t: 'Not a fit / out of scope — brand, <10k followers, inactive (>6mo), or non-UK' },
 };
@@ -6706,12 +6711,12 @@ function bdrTierOf(m) {
   if (fit === 'not_a_fit')          { tier = 5; reason = 'Not a fit'; }
   else if (fit === 'weak_fit')      { tier = 4; reason = 'Weak fit — tangential / home-cooking / UK unverified'; }
   else if (fit === 'possible_fit')  {
-    if (uk === 'location_low_proof') { tier = 2; reason = 'Possible fit, UK only low-proof — approach soon'; }
-    else                             { tier = 3; reason = 'Possible fit — food secondary or dining mode partial'; }
+    if (uk === 'location_low_proof') { tier = 3; reason = 'Possible fit, UK only low-proof — worth a look'; }
+    else                             { tier = 2; reason = 'Possible fit — food secondary or dining mode partial'; }
   }
   else if (fit === 'strong_fit')    {
     if (_BD_T1_FORMATS.has(ft))      { tier = 1; reason = 'Strong fit — dining-out reviewer / list-maker'; }
-    else                             { tier = 2; reason = 'Strong fit, but not a reviewer/list format — approach soon'; }
+    else                             { tier = 3; reason = 'Strong fit, but not a reviewer/list format — worth a look'; }
   }
   else                              { tier = 5; reason = `Unrecognised fit (${fit})`; }
 
@@ -7008,6 +7013,43 @@ function bdrTagRemove(el) {
 function bdrTagRerender(view) {
   if (view === 'outreach') { if (typeof outreachRender === 'function') outreachRender(); }
   else bdrInsightsRender();
+}
+
+// ── Platform brand logos / colours — shared by Overview, Outreach and the drawer ───────────────
+const BDR_PLAT_SVG = {
+  instagram: `<svg viewBox="0 0 20 20" width="13" height="13" xmlns="http://www.w3.org/2000/svg"><rect x="2.5" y="2.5" width="15" height="15" rx="4.5" fill="none" stroke="white" stroke-width="1.8"/><circle cx="10" cy="10" r="3.8" fill="none" stroke="white" stroke-width="1.8"/><circle cx="14.8" cy="5.2" r="1.1" fill="white"/></svg>`,
+  tiktok:    `<svg viewBox="0 0 20 20" width="12" height="12" xmlns="http://www.w3.org/2000/svg"><path fill="white" d="M13.4 2v1.6a3.3 3.3 0 0 0 3.3 2.8v2.2a5.6 5.6 0 0 1-3.3-1.1V13a4.4 4.4 0 1 1-2.2-3.8v2.4a2.1 2.1 0 1 0 1.1 1.9V2h1.1z"/></svg>`,
+  youtube:   `<svg viewBox="0 0 20 20" width="14" height="14" xmlns="http://www.w3.org/2000/svg"><path fill="white" d="M7.5 5.5l7 4.5-7 4.5z"/></svg>`,
+  x:         `<svg viewBox="0 0 20 20" width="12" height="12" xmlns="http://www.w3.org/2000/svg"><path fill="white" d="M13.8 3h2.4L11 8.8l5.9 8.2H13l-3.4-4.5-3.9 4.5H3.3l5.5-6.3L3 3h4l3.1 4.1L13.8 3zM13 15.6h1.3L7.1 4.4H5.7z"/></svg>`,
+};
+const BDR_PLAT_BG = {
+  instagram: 'linear-gradient(45deg,#f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%)',
+  tiktok:    '#010101',
+  youtube:   '#ff0000',
+  x:         '#000000',
+};
+// Build clickable round brand-logo links (one per platform the creator is on). Prefers the stored
+// profile_url, falling back to a handle-constructed URL. Returns '' when `merged` is null/no platforms.
+function bdrPlatformLinksHtml(merged) {
+  if (!merged || !Array.isArray(merged.platforms)) return '';
+  return merged.platforms.map(p => {
+    const row = (merged._rows || []).find(r => (r.platform || r.raw_platform || '').toLowerCase().includes(p));
+    // Use this platform's OWN handle for the URL — after name-confirmed merges a platform's handle
+    // can differ from the primary creator handle.
+    const h = (((row && row.handle) || merged.handle) || '').replace(/^@/, '');
+    let platUrl = (row && row.profile_url) || '';
+    if (!platUrl) {
+      if (p.includes('instagram'))   platUrl = `https://www.instagram.com/${h}/`;
+      else if (p.includes('tiktok')) platUrl = `https://www.tiktok.com/@${h}`;
+      else if (p.includes('youtube'))platUrl = `https://www.youtube.com/@${h}`;
+      else if (p.includes('x'))      platUrl = `https://x.com/${h}`;
+    }
+    if (!platUrl) return '';
+    const pKey = Object.keys(BDR_PLAT_BG).find(k => p.includes(k)) || '';
+    const bg  = pKey ? `background:${BDR_PLAT_BG[pKey]}` : 'background:#888';
+    const ico = BDR_PLAT_SVG[pKey] || `<span style="font-size:9px;font-weight:700;color:#fff">${p.slice(0,2).toUpperCase()}</span>`;
+    return `<a href="${platUrl}" target="_blank" rel="noopener" title="Open ${p} profile" style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;${bg};text-decoration:none;flex-shrink:0;margin-left:4px">${ico}</a>`;
+  }).filter(Boolean).join('');
 }
 
 // Merge cache — keyed by array reference so it's invalidated automatically when bdrMatchingData is reassigned
@@ -8718,37 +8760,8 @@ function bdrRenderTable(rows, _skipPageSetup) {
     const avatarHtml = m.avatar_url
       ? `<img src="${m.avatar_url}" style="width:28px;height:28px;border-radius:50%;vertical-align:middle;margin-right:6px;object-fit:cover">`
       : '';
-    // Per-platform clickable icon links with brand SVG logos
-    const PLAT_SVG = {
-      instagram: `<svg viewBox="0 0 20 20" width="13" height="13" xmlns="http://www.w3.org/2000/svg"><rect x="2.5" y="2.5" width="15" height="15" rx="4.5" fill="none" stroke="white" stroke-width="1.8"/><circle cx="10" cy="10" r="3.8" fill="none" stroke="white" stroke-width="1.8"/><circle cx="14.8" cy="5.2" r="1.1" fill="white"/></svg>`,
-      tiktok:    `<svg viewBox="0 0 20 20" width="12" height="12" xmlns="http://www.w3.org/2000/svg"><path fill="white" d="M13.4 2v1.6a3.3 3.3 0 0 0 3.3 2.8v2.2a5.6 5.6 0 0 1-3.3-1.1V13a4.4 4.4 0 1 1-2.2-3.8v2.4a2.1 2.1 0 1 0 1.1 1.9V2h1.1z"/></svg>`,
-      youtube:   `<svg viewBox="0 0 20 20" width="14" height="14" xmlns="http://www.w3.org/2000/svg"><path fill="white" d="M7.5 5.5l7 4.5-7 4.5z"/></svg>`,
-      x:         `<svg viewBox="0 0 20 20" width="12" height="12" xmlns="http://www.w3.org/2000/svg"><path fill="white" d="M13.8 3h2.4L11 8.8l5.9 8.2H13l-3.4-4.5-3.9 4.5H3.3l5.5-6.3L3 3h4l3.1 4.1L13.8 3zM13 15.6h1.3L7.1 4.4H5.7z"/></svg>`,
-    };
-    const PLAT_BG = {
-      instagram: 'linear-gradient(45deg,#f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%)',
-      tiktok:    '#010101',
-      youtube:   '#ff0000',
-      x:         '#000000',
-    };
-    const platIconLinks = m.platforms.map(p => {
-      const row = m._rows.find(r => (r.platform || r.raw_platform || '').toLowerCase().includes(p));
-      // Use this platform's OWN handle for the URL — after name-confirmed merges a
-      // platform's handle can differ from the primary creator handle.
-      const h = (((row && row.handle) || m.handle) || '').replace(/^@/, '');
-      let platUrl = row?.profile_url || '';
-      if (!platUrl) {
-        if (p.includes('instagram')) platUrl = `https://www.instagram.com/${h}/`;
-        else if (p.includes('tiktok'))   platUrl = `https://www.tiktok.com/@${h}`;
-        else if (p.includes('youtube'))  platUrl = `https://www.youtube.com/@${h}`;
-        else if (p.includes('x'))        platUrl = `https://x.com/${h}`;
-      }
-      if (!platUrl) return '';
-      const pKey = Object.keys(PLAT_BG).find(k => p.includes(k)) || '';
-      const bg  = pKey ? `background:${PLAT_BG[pKey]}` : 'background:#888';
-      const ico = PLAT_SVG[pKey] || `<span style="font-size:9px;font-weight:700;color:#fff">${p.slice(0,2).toUpperCase()}</span>`;
-      return `<a href="${platUrl}" target="_blank" rel="noopener" title="Open ${p} profile" style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;${bg};text-decoration:none;flex-shrink:0;margin-left:4px">${ico}</a>`;
-    }).filter(Boolean).join('');
+    // Per-platform clickable brand-logo links (shared helper — single source of truth).
+    const platIconLinks = bdrPlatformLinksHtml(m);
     const handleHtml = `${avatarHtml}<span style="font-weight:600;font-size:12px">@${m.handle||'—'}</span>${platIconLinks}`;
 
     // Platform pills with per-platform follower counts
@@ -9256,7 +9269,23 @@ function outreachFormatDate(dateStr) {
 }
 
 function outreachRender() {
-  const rows = _outreachData;
+  // Tag filter — read the current selection, then repopulate the dropdown facet (tag → count over
+  // the FULL pipeline) so the option list and counts always reflect live tag state. Mirrors the
+  // Overview tag facet (insTopTags). Selection is preserved across re-renders.
+  const tagSel  = document.getElementById('outreachFilterTags');
+  const tagFilt = tagSel ? tagSel.value : '';
+  if (tagSel) {
+    const map = new Map();
+    for (const r of _outreachData) for (const t of bdrGetTags(r.handle)) map.set(t, (map.get(t) || 0) + 1);
+    const keys = [...map.keys()].sort((a, b) => a.localeCompare(b));
+    if (tagFilt && !map.has(tagFilt)) keys.push(tagFilt); // keep a selected-but-now-empty tag visible
+    let th = `<option value="">All (${_outreachData.length})</option>`;
+    for (const t of keys) th += `<option value="${escapeHtml(t)}"${t === tagFilt ? ' selected' : ''}>${escapeHtml(t)} (${map.get(t) || 0})</option>`;
+    tagSel.innerHTML = th;
+  }
+
+  // Apply the tag filter (no filter ⇒ everything). Stat cards + table reflect the filtered set.
+  const rows = tagFilt ? _outreachData.filter(r => bdrGetTags(r.handle).includes(tagFilt)) : _outreachData;
 
   // Stat cards
   const total     = rows.length;
@@ -9273,22 +9302,19 @@ function outreachRender() {
   // Table rows
   const tbody = document.getElementById('outreachTbody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="padding:32px;text-align:center;color:var(--muted2);font-size:13px">No influencers tracked yet — click <strong>+ Add influencer</strong> to start.</td></tr>';
+    tbody.innerHTML = tagFilt
+      ? `<tr><td colspan="9" style="padding:32px;text-align:center;color:var(--muted2);font-size:13px">No tracked influencers tagged <strong>${escapeHtml(tagFilt)}</strong>.</td></tr>`
+      : '<tr><td colspan="9" style="padding:32px;text-align:center;color:var(--muted2);font-size:13px">No influencers tracked yet — click <strong>+ Add influencer</strong> to start.</td></tr>';
     return;
   }
 
   tbody.innerHTML = rows.map((r, i) => {
     const rowBg = i % 2 === 1 ? 'background:var(--surface)' : '';
 
-    // Handle cell — show platform icons if in bdrMatchingData
+    // Handle cell — clickable brand-logo links per platform (when the creator is in bdrMatchingData)
     const merged = typeof bdrMergeByHandle === 'function' && bdrMatchingData?.length
       ? bdrMergeByHandle(bdrMatchingData).find(m => m.handle === r.handle) : null;
-    const platHtml = merged ? merged.platforms.map(p => {
-      const pKey = ['instagram','tiktok','youtube','x'].find(k => p.includes(k)) || '';
-      const lbl  = { instagram:'IG', tiktok:'TT', youtube:'YT', x:'X' }[pKey] || p.slice(0,2).toUpperCase();
-      const col  = { instagram:'#e1306c', tiktok:'#222', youtube:'#ff0000', x:'#1da1f2' }[pKey] || '#888';
-      return `<span style="font-size:10px;font-weight:700;color:${col};background:${col}18;border-radius:100px;padding:1px 5px;border:1px solid ${col}40;margin-left:3px">${lbl}</span>`;
-    }).join('') : '';
+    const platHtml = bdrPlatformLinksHtml(merged);
 
     // Status cell
     let statusHtml;
@@ -9309,7 +9335,7 @@ function outreachRender() {
       : '—';
 
     return `<tr style="font-size:12px;${rowBg}" data-handle="${r.handle}">
-      <td style="padding:8px 12px;font-weight:600">@${r.handle}${platHtml}</td>
+      <td style="padding:8px 12px;font-weight:600"><span style="display:inline-flex;align-items:center">@${r.handle}${platHtml}</span></td>
       <td style="padding:8px 12px;color:var(--muted)">${outreachFormatDate(r.first_contact_date)}</td>
       <td style="padding:8px 12px">${statusHtml}</td>
       <td style="padding:8px 12px;font-family:var(--mono);font-size:11px">${price}</td>
