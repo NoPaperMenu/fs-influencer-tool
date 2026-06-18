@@ -9236,9 +9236,17 @@ let _outreachData = [];        // cached list from DB
 let _outreachLoaded = false;   // true once fetched at least once (even if empty)
 let _outreachEditHandle = null; // null = add mode, string = edit mode
 
+// Platform logo links in the Outreach table read from bdrMatchingData (the BrightData profile set).
+// Outreach can be opened without ever visiting the Overview tab, so ensure that data is loaded —
+// otherwise no creator matches and no links show. Best-effort: failures never block the pipeline.
+async function outreachEnsureProfiles() {
+  if (bdrLoaded || (Array.isArray(bdrMatchingData) && bdrMatchingData.length)) return;
+  try { if (typeof loadBdResults === 'function') await loadBdResults(); } catch (_) {}
+}
+
 async function loadOutreach(forceRefresh) {
   // Tab switches re-call this — skip the network round-trip if already loaded.
-  if (_outreachLoaded && !forceRefresh) { await insPreloadTags(); outreachRender(); return; }
+  if (_outreachLoaded && !forceRefresh) { await insPreloadTags(); await outreachEnsureProfiles(); outreachRender(); return; }
   document.getElementById('outreachTbody').innerHTML =
     '<tr><td colspan="9" style="padding:24px;text-align:center;color:var(--muted2);font-size:12px">Loading…</td></tr>';
   try {
@@ -9251,6 +9259,7 @@ async function loadOutreach(forceRefresh) {
     _outreachData = data.data || [];
     _outreachLoaded = true;
     await insPreloadTags();
+    await outreachEnsureProfiles(); // load profile set so platform logo links resolve
     outreachRender();
   } catch (e) {
     document.getElementById('outreachTbody').innerHTML =

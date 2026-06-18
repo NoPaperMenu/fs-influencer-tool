@@ -11,3 +11,6 @@ devserver.mjs
 
 # Diagnostic logs from detect-language / find-other-platforms runs — local only
 *.jsonl
+
+.vercel
+.env*.local
