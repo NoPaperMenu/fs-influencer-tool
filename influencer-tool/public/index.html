@@ -269,6 +269,17 @@ tbody tr.isnew td:nth-child(1),tbody tr.isnew td:nth-child(2),tbody tr.isnew td:
    columns (checkbox + Handle) via inline position:sticky, which still wins over this reset. */
 #insTopList table thead th:nth-child(-n+3), #insTopList table tbody td:nth-child(-n+3){position:static;left:auto;min-width:0}
 #insTopList table thead th:nth-child(3), #insTopList table tbody td:nth-child(3){border-right:none}
+/* Same leak on the Pilot Calls table: the nth-child(1..3) rules pin Handle/Followers/Eng at
+   left:0/32/78px — offsets sized for the data table's checkbox column — so they overlap each
+   other while the row scrolls underneath. Reset all three, then freeze ONLY Handle, with an
+   opaque background so scrolled cells can't show through it. */
+#pilotTable thead th:nth-child(-n+3), #pilotTable tbody td:nth-child(-n+3){position:static;left:auto;min-width:0}
+#pilotTable thead th:nth-child(3), #pilotTable tbody td:nth-child(3){border-right:none}
+#pilotTable thead th:first-child{position:sticky;left:0;top:0;z-index:4;background:var(--surface);width:230px;min-width:230px;max-width:230px;box-shadow:2px 0 5px rgba(0,0,0,.07)}
+#pilotTable tbody td:first-child{position:sticky;left:0;z-index:2;background:var(--white);width:230px;min-width:230px;max-width:230px;box-shadow:2px 0 5px rgba(0,0,0,.05)}
+#pilotTable tbody tr:hover td:first-child{background:var(--surface)}
+#pilotTable thead th:nth-child(2), #pilotTable thead th:nth-child(3),
+#pilotTable tbody td:nth-child(2), #pilotTable tbody td:nth-child(3){white-space:nowrap}
 tbody tr.isnew:hover td:nth-child(1),tbody tr.isnew:hover td:nth-child(2),tbody tr.isnew:hover td:nth-child(3){background:#e8f7ee}
 tbody tr{border-bottom:1px solid var(--border);transition:background .1s}
 tbody tr:hover{background:var(--surface)}
