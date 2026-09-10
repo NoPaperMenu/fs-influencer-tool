@@ -4519,7 +4519,7 @@ function renderPostsModal(handle, posts) {
             <tr style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">
               <th style="padding:8px 12px;text-align:left">Handle</th>
               <th style="padding:8px 12px;text-align:right">Followers</th>
-              <th style="padding:8px 12px;text-align:right">Eng</th>
+              <th style="padding:8px 12px;text-align:right" title="Engagement Rating 0–100 — (likes + comments) ÷ followers, ranked within platform (comparable across IG / TikTok / YouTube)">Eng</th>
               <th style="padding:8px 12px;text-align:left">Tier</th>
               <th style="padding:8px 12px;text-align:left">Entity</th>
               <th style="padding:8px 12px;text-align:left">Category</th>
@@ -7321,7 +7321,7 @@ function bdrPlatformLinksHtml(merged) {
     const pKey = Object.keys(BDR_PLAT_BG).find(k => p.includes(k)) || '';
     const bg  = pKey ? `background:${BDR_PLAT_BG[pKey]}` : 'background:#888';
     const ico = BDR_PLAT_SVG[pKey] || `<span style="font-size:9px;font-weight:700;color:#fff">${p.slice(0,2).toUpperCase()}</span>`;
-    return `<a href="${platUrl}" target="_blank" rel="noopener" title="Open ${p} profile" style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;${bg};text-decoration:none;flex-shrink:0;margin-left:4px">${ico}</a>`;
+    return `<a href="${escapeHtml(platUrl)}" target="_blank" rel="noopener" title="Open ${escapeHtml(p)} profile" style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;${bg};text-decoration:none;flex-shrink:0;margin-left:4px">${ico}</a>`;
   }).filter(Boolean).join('');
 }
 
@@ -10305,7 +10305,17 @@ function pilotRender() {
   // full enriched population rather than just the handful of creators on this table.
   const mergedSet = (bdrMatchingData?.length && typeof bdrMergeByHandle === 'function') ? bdrMergeByHandle(bdrMatchingData) : [];
   if (mergedSet.length && typeof bdrComputeScores === 'function') bdrComputeScores(mergedSet);
-  const mergedByNorm = new Map(mergedSet.map(m => [bdrNormHandle(m.handle), m]));
+  // Index by the primary handle AND by every constituent row's handle: bdrMergeByHandle unions
+  // similar handles under one primary, so a pilot row saved under a secondary handle would
+  // otherwise miss its own profile. Primary wins on collision.
+  const mergedByNorm = new Map();
+  for (const m of mergedSet) {
+    for (const row of (m._rows || [])) {
+      const k = bdrNormHandle(row.handle);
+      if (k && !mergedByNorm.has(k)) mergedByNorm.set(k, m);
+    }
+  }
+  for (const m of mergedSet) mergedByNorm.set(bdrNormHandle(m.handle), m);
 
   tbody.innerHTML = rows.map(r => {
     const worthColor = WORTH_COLOR[r.worth_pursuing] || 'var(--muted2)';
@@ -10327,10 +10337,14 @@ function pilotRender() {
       ? `<span style="font-family:var(--mono);font-size:12px">${bdFormatCompact(bdParseCompact(merged.followers))}</span>`
       : muted2;
 
-    // Engagement rate
-    const engHtml = (merged && merged.engagement_rate != null)
-      ? `<span style="font-family:var(--mono);font-size:12px">${(+merged.engagement_rate).toFixed(1)}%</span>`
-      : muted2;
+    // Engagement Rating (0–100 within-platform percentile from bdrComputeScores) — the same
+    // metric the Results/Insights tables and the Outreach cards label "Eng". Deliberately NOT
+    // raw engagement_rate: that column stores views/subscribers for YouTube rows, so it exceeds
+    // 100 there and is suppressed elsewhere by a v<=200 clamp.
+    const engScore = merged ? merged.engScore : null;
+    const engHtml = engScore == null
+      ? muted2
+      : `<span style="font-weight:700;color:${engScore >= 70 ? 'var(--green)' : engScore >= 40 ? 'var(--amber)' : 'var(--muted)'}">${engScore}</span>${merged.hype ? ' <span title="≥25k followers but bottom-quartile engagement for its platform — verify before outreach" style="color:#c0392b;font-weight:700;cursor:help">⚠</span>' : ''}`;
 
     // Tier badge
     let tierHtml = muted2;
