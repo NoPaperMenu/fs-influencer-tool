@@ -4514,10 +4514,20 @@ function renderPostsModal(handle, posts) {
         <button onclick="pilotOpenForm(null)" style="display:inline-flex;align-items:center;gap:5px;background:var(--amber);color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer">+ Add pilot call</button>
       </div>
       <div style="overflow-x:auto">
-        <table id="pilotTable" style="width:100%;border-collapse:collapse;min-width:700px">
+        <table id="pilotTable" style="width:100%;border-collapse:collapse;min-width:1200px">
           <thead>
             <tr style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">
               <th style="padding:8px 12px;text-align:left">Handle</th>
+              <th style="padding:8px 12px;text-align:right">Followers</th>
+              <th style="padding:8px 12px;text-align:right">Eng</th>
+              <th style="padding:8px 12px;text-align:left">Tier</th>
+              <th style="padding:8px 12px;text-align:left">Entity</th>
+              <th style="padding:8px 12px;text-align:left">Category</th>
+              <th style="padding:8px 12px;text-align:left">Food Type</th>
+              <th style="padding:8px 12px;text-align:left">Service</th>
+              <th style="padding:8px 12px;text-align:left">Dietary</th>
+              <th style="padding:8px 12px;text-align:left">UK</th>
+              <th style="padding:8px 12px;text-align:left">Fit</th>
               <th style="padding:8px 12px;text-align:left">Channel</th>
               <th style="padding:8px 12px;text-align:left">Call date</th>
               <th style="padding:8px 12px;text-align:left">Status</th>
@@ -4528,7 +4538,7 @@ function renderPostsModal(handle, posts) {
             </tr>
           </thead>
           <tbody id="pilotTbody">
-            <tr><td colspan="8" style="padding:24px;text-align:center;color:var(--muted2);font-size:12px">Loading…</td></tr>
+            <tr><td colspan="18" style="padding:24px;text-align:center;color:var(--muted2);font-size:12px">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -10246,7 +10256,7 @@ let _pilotEditId = null; // null = add mode, number = edit mode
 async function loadPilot(forceRefresh) {
   if (_pilotLoaded && !forceRefresh) { pilotRender(); return; }
   document.getElementById('pilotTbody').innerHTML =
-    '<tr><td colspan="8" style="padding:24px;text-align:center;color:var(--muted2);font-size:12px">Loading…</td></tr>';
+    '<tr><td colspan="18" style="padding:24px;text-align:center;color:var(--muted2);font-size:12px">Loading…</td></tr>';
   try {
     const resp = await fetch('/api/db-save', {
       method: 'POST', headers: getApiHeaders(),
@@ -10259,7 +10269,7 @@ async function loadPilot(forceRefresh) {
     pilotRender();
   } catch (e) {
     document.getElementById('pilotTbody').innerHTML =
-      `<tr><td colspan="8" style="padding:24px;text-align:center;color:var(--red);font-size:12px">Error: ${e.message}</td></tr>`;
+      `<tr><td colspan="18" style="padding:24px;text-align:center;color:var(--red);font-size:12px">Error: ${e.message}</td></tr>`;
   }
 }
 
@@ -10286,7 +10296,7 @@ function pilotRender() {
 
   const tbody = document.getElementById('pilotTbody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="padding:32px;text-align:center;color:var(--muted2);font-size:12px">No pilot calls yet. Add your first one above.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="18" style="padding:32px;text-align:center;color:var(--muted2);font-size:12px">No pilot calls yet. Add your first one above.</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(r => {
@@ -10296,13 +10306,101 @@ function pilotRender() {
     const tagsHtml = tagsList.length
       ? tagsList.map(t => `<span style="font-size:10px;background:var(--blue-bg);color:var(--blue);border-radius:100px;padding:2px 7px;white-space:nowrap">${t}</span>`).join(' ')
       : '<span style="color:var(--muted2);font-size:11px">—</span>';
+
+    // Profile & classification data
+    const profRows = bdrMatchingData.filter(pr => bdrNormHandle(pr.handle) === bdrNormHandle(r.handle));
+    const merged   = profRows.length ? bdrMergeByHandle(profRows)[0] : null;
+    const cls      = merged ? bdrGetClass(merged.handle, merged.platforms?.[0] || '') : {};
+    const tierInfo = merged ? bdrEffectiveTier(merged) : null;
+
+    const muted2 = '<span style="color:var(--muted2)">—</span>';
+
+    // Followers
+    const followersHtml = merged
+      ? `<span style="font-family:var(--mono);font-size:12px">${bdFormatCompact(bdParseCompact(merged.followers))}</span>`
+      : muted2;
+
+    // Engagement rate
+    const engHtml = (merged && merged.engagement_rate != null)
+      ? `<span style="font-family:var(--mono);font-size:12px">${(+merged.engagement_rate).toFixed(1)}%</span>`
+      : muted2;
+
+    // Tier badge
+    let tierHtml = muted2;
+    if (tierInfo && tierInfo.status === 'tier') {
+      const tm = BD_TIER_META[tierInfo.tier] || {};
+      tierHtml = `<span title="${escapeHtml(tierInfo.reason || '')}" style="font-size:11px;font-weight:700;background:${tm.bg};color:${tm.color};border-radius:100px;padding:2px 8px;white-space:nowrap">${tm.label}</span>`;
+    }
+
+    // Entity
+    let entityHtml = muted2;
+    if (cls.entity_type) {
+      const em = BD_ENTITY_META[cls.entity_type] || {};
+      entityHtml = `<span style="font-size:11px;background:${em.bg||'var(--surface)'};color:${em.color||'var(--muted)'};border-radius:100px;padding:2px 8px;white-space:nowrap">${em.label||cls.entity_type}</span>`;
+    }
+
+    // Category
+    const catHtml = cls.primary_content_category
+      ? `<span style="font-size:11px;color:var(--muted)">${BD_CAT_LABEL[cls.primary_content_category] || cls.primary_content_category}</span>`
+      : muted2;
+
+    // Food Type
+    const foodTypeHtml = cls.primary_food_content_type
+      ? `<span style="font-size:11px;color:var(--muted)">${BD_FOODTYPE_LABEL[cls.primary_food_content_type] || cls.primary_food_content_type}</span>`
+      : muted2;
+
+    // Service
+    let serviceHtml = muted2;
+    if (cls.food_service_type) {
+      const sm = BD_SERVICE_META[cls.food_service_type] || {};
+      serviceHtml = `<span title="${sm.t||''}" style="font-size:11px;background:${sm.bg||'var(--surface)'};color:${sm.color||'var(--muted)'};border-radius:100px;padding:2px 8px;white-space:nowrap">${sm.label||cls.food_service_type}</span>`;
+    }
+
+    // Dietary
+    let dietaryHtml = muted2;
+    if (cls.dietary_focus) {
+      const dm = BD_DIETARY_META[cls.dietary_focus] || {};
+      dietaryHtml = `<span title="${dm.t||''}" style="font-size:11px;background:${dm.bg||'var(--surface)'};color:${dm.color||'var(--muted)'};border-radius:100px;padding:2px 8px;white-space:nowrap">${dm.label||cls.dietary_focus}</span>`;
+    }
+
+    // UK
+    let ukHtml = muted2;
+    if (cls.uk_geography) {
+      const um = BD_UK_META[cls.uk_geography] || {};
+      ukHtml = `<span title="${um.t||''}" style="font-size:11px;background:${um.bg||'var(--surface)'};color:${um.color||'var(--muted)'};border-radius:100px;padding:2px 8px;white-space:nowrap">${um.label||cls.uk_geography}</span>`;
+    }
+
+    // Fit
+    let fitHtml = muted2;
+    if (cls.foodstyles_fit) {
+      const fm = BD_FIT_META[cls.foodstyles_fit] || {};
+      const tip = cls.fit_reasoning ? escapeHtml(cls.fit_reasoning) : (fm.t || '');
+      fitHtml = `<span title="${tip}" style="font-size:11px;background:${fm.bg||'var(--surface)'};color:${fm.color||'var(--muted)'};border-radius:100px;padding:2px 8px;white-space:nowrap">${fm.label||cls.foodstyles_fit}</span>`;
+    }
+
+    // Profile link on handle
+    const profileUrl = merged?.profile_url;
+    const handleDisplay = profileUrl
+      ? `<a href="${escapeHtml(profileUrl)}" target="_blank" rel="noopener" style="font-weight:700;font-size:13px;color:inherit;text-decoration:none">@${escapeHtml(r.handle)}</a>`
+      : `<span style="font-weight:700;font-size:13px">@${escapeHtml(r.handle)}</span>`;
+
     return `<tr style="border-bottom:1px solid var(--bg)">
-      <td style="padding:8px 12px;font-weight:700;font-size:13px">@${r.handle}${r.name ? `<div style="font-size:11px;font-weight:400;color:var(--muted);margin-top:1px">${escapeHtml(r.name)}</div>` : ''}</td>
-      <td style="padding:8px 12px;font-size:12px;color:var(--muted)">${r.outreach_channel || '<span style="color:var(--muted2)">—</span>'}</td>
+      <td style="padding:8px 12px">${handleDisplay}${r.name ? `<div style="font-size:11px;font-weight:400;color:var(--muted);margin-top:1px">${escapeHtml(r.name)}</div>` : ''}</td>
+      <td style="padding:8px 12px;text-align:right">${followersHtml}</td>
+      <td style="padding:8px 12px;text-align:right">${engHtml}</td>
+      <td style="padding:8px 12px">${tierHtml}</td>
+      <td style="padding:8px 12px">${entityHtml}</td>
+      <td style="padding:8px 12px">${catHtml}</td>
+      <td style="padding:8px 12px">${foodTypeHtml}</td>
+      <td style="padding:8px 12px">${serviceHtml}</td>
+      <td style="padding:8px 12px">${dietaryHtml}</td>
+      <td style="padding:8px 12px">${ukHtml}</td>
+      <td style="padding:8px 12px">${fitHtml}</td>
+      <td style="padding:8px 12px;font-size:12px;color:var(--muted)">${r.outreach_channel || muted2}</td>
       <td style="padding:8px 12px;font-size:12px">${pilotFormatDate(r.call_date)}</td>
       <td style="padding:8px 12px;font-size:12px">${statusLabel}</td>
-      <td style="padding:8px 12px;font-size:12px;color:var(--muted)">${r.deal_handler || '<span style="color:var(--muted2)">—</span>'}</td>
-      <td style="padding:8px 12px;font-size:12px;font-weight:700;color:${worthColor}">${r.worth_pursuing || '<span style="color:var(--muted2);font-weight:400">—</span>'}</td>
+      <td style="padding:8px 12px;font-size:12px;color:var(--muted)">${r.deal_handler || muted2}</td>
+      <td style="padding:8px 12px;font-size:12px;font-weight:700;color:${worthColor}">${r.worth_pursuing || `<span style="color:var(--muted2);font-weight:400">—</span>`}</td>
       <td style="padding:8px 12px;font-size:12px">${tagsHtml}</td>
       <td style="padding:8px 12px;text-align:right">
         <button onclick="pilotOpenForm(${r.id})" style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600">Edit</button>
