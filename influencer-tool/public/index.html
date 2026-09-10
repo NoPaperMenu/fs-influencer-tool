@@ -10254,7 +10254,7 @@ let _pilotLoaded = false;
 let _pilotEditId = null; // null = add mode, number = edit mode
 
 async function loadPilot(forceRefresh) {
-  if (_pilotLoaded && !forceRefresh) { pilotRender(); return; }
+  if (_pilotLoaded && !forceRefresh) { await insPreloadTags(); await outreachEnsureProfiles(); pilotRender(); return; }
   document.getElementById('pilotTbody').innerHTML =
     '<tr><td colspan="18" style="padding:24px;text-align:center;color:var(--muted2);font-size:12px">Loading…</td></tr>';
   try {
@@ -10266,6 +10266,8 @@ async function loadPilot(forceRefresh) {
     if (!resp.ok) throw new Error(data.error || resp.statusText);
     _pilotData = data.data || [];
     _pilotLoaded = true;
+    await insPreloadTags();
+    await outreachEnsureProfiles(); // profile+classification columns read bdrMatchingData
     pilotRender();
   } catch (e) {
     document.getElementById('pilotTbody').innerHTML =
@@ -10299,6 +10301,12 @@ function pilotRender() {
     tbody.innerHTML = '<tr><td colspan="18" style="padding:32px;text-align:center;color:var(--muted2);font-size:12px">No pilot calls yet. Add your first one above.</td></tr>';
     return;
   }
+  // Merge the profile set once and (re)compute engagement scores, so the percentile cohort is the
+  // full enriched population rather than just the handful of creators on this table.
+  const mergedSet = (bdrMatchingData?.length && typeof bdrMergeByHandle === 'function') ? bdrMergeByHandle(bdrMatchingData) : [];
+  if (mergedSet.length && typeof bdrComputeScores === 'function') bdrComputeScores(mergedSet);
+  const mergedByNorm = new Map(mergedSet.map(m => [bdrNormHandle(m.handle), m]));
+
   tbody.innerHTML = rows.map(r => {
     const worthColor = WORTH_COLOR[r.worth_pursuing] || 'var(--muted2)';
     const statusLabel = STATUS_LABEL[r.call_status] || '<span style="color:var(--muted2)">—</span>';
@@ -10308,8 +10316,7 @@ function pilotRender() {
       : '<span style="color:var(--muted2);font-size:11px">—</span>';
 
     // Profile & classification data
-    const profRows = bdrMatchingData.filter(pr => bdrNormHandle(pr.handle) === bdrNormHandle(r.handle));
-    const merged   = profRows.length ? bdrMergeByHandle(profRows)[0] : null;
+    const merged   = mergedByNorm.get(bdrNormHandle(r.handle)) || null;
     const cls      = merged ? bdrGetClass(merged.handle, merged.platforms?.[0] || '') : {};
     const tierInfo = merged ? bdrEffectiveTier(merged) : null;
 
@@ -10378,14 +10385,14 @@ function pilotRender() {
       fitHtml = `<span title="${tip}" style="font-size:11px;background:${fm.bg||'var(--surface)'};color:${fm.color||'var(--muted)'};border-radius:100px;padding:2px 8px;white-space:nowrap">${fm.label||cls.foodstyles_fit}</span>`;
     }
 
-    // Profile link on handle
-    const profileUrl = merged?.profile_url;
-    const handleDisplay = profileUrl
-      ? `<a href="${escapeHtml(profileUrl)}" target="_blank" rel="noopener" style="font-weight:700;font-size:13px;color:inherit;text-decoration:none">@${escapeHtml(r.handle)}</a>`
-      : `<span style="font-weight:700;font-size:13px">@${escapeHtml(r.handle)}</span>`;
+    // One logo link per platform (same helper the Outreach table uses).
+    const linksHtml = merged ? bdrPlatformLinksHtml(merged) : '';
 
     return `<tr style="border-bottom:1px solid var(--bg)">
-      <td style="padding:8px 12px">${handleDisplay}${r.name ? `<div style="font-size:11px;font-weight:400;color:var(--muted);margin-top:1px">${escapeHtml(r.name)}</div>` : ''}</td>
+      <td style="padding:8px 12px">
+        <div style="display:flex;align-items:center;flex-wrap:wrap"><span style="font-weight:700;font-size:13px">@${escapeHtml(r.handle)}</span>${linksHtml}</div>
+        ${r.name ? `<div style="font-size:11px;font-weight:400;color:var(--muted);margin-top:1px">${escapeHtml(r.name)}</div>` : ''}
+      </td>
       <td style="padding:8px 12px;text-align:right">${followersHtml}</td>
       <td style="padding:8px 12px;text-align:right">${engHtml}</td>
       <td style="padding:8px 12px">${tierHtml}</td>
